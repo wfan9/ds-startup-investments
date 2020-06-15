@@ -1,0 +1,158 @@
+---
+title: "Predicting Startup Status"
+author: "William Fang"
+date: "15/06/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE, echo = FALSE, warning = FALSE, message = FALSE, error = FALSE, cache = TRUE, comment = NA)
+
+# Save/load computationally expensive data to/from file to save time during development.
+use_cache <- FALSE
+```
+
+# Introduction
+
+@@@@ Section that describes the dataset and variables, and summarizes the goal of the project and key steps that were performed.
+
+```{r required-packages, cache = FALSE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
+```
+
+```{r data-setup}
+
+dl <- tempfile()
+download.file("https://github.com/wfan9/ds-startup-investments/raw/master/data/517018_952128_compressed_investments_VC.csv.zip", dl)
+data <- read_csv(unzip(dl))
+
+str(data)
+
+rm(dl)
+```
+
+## Variables
+
+The dataset contains `r length(names(data))` variables:
+
+```{r variables-table, include = TRUE}
+names(data)
+```
+
+### Market and Categories
+
+The `market` variable is string representing the main market the startup is targeting.
+`category_list` contains one or more categories the startup belongs to. Each category is separated by a |, and
+there is no specific ordering to the list.
+
+```{r category_list-sample, include = TRUE}
+kable(head(data$category_list), caption = "Sample category_list Valuse")
+```
+
+### Name
+
+Startup name, there may be some sort of predictive power here. For example, a catchy or memorable startup name
+might attract more attention and lead to more investment, consumer interest etc.
+
+### Location
+
+There are four variables that describe location.  `country_code` which is a 3 character string, `state_code` a
+2 character string for companies within the US, `region` and `city` which are strings.
+
+### Status
+
+The focus of this report is to create a model for predicting status. The variable `status` has the following values:
+
+```{r status-values, include = TRUE}
+kable(unique(data$status), caption = "Status Values")
+```
+There are companies with a missing status value, these will be removed as they can't be used.
+
+### Date
+founded_at
+founded_month
+
+"               "funding_total_usd"
+ [8] ""         ""           "funding_rounds"                         
+[15] "founded_quarter"      "founded_year"         "first_funding_at"     "last_funding_at"      "seed"                 "venture"              "equity_crowdfunding" 
+[22] "undisclosed"          "convertible_note"     "debt_financing"       "angel"                "grant"                "private_equity"       "post_ipo_equity"     
+[29] "post_ipo_debt"        "secondary_market"     "product_crowdfunding" "round_A"              "round_B"              "round_C"              "round_D"             
+[36] "round_E"              "round_F"              "round_G"              "round_H"
+
+
+### Ignored Variables
+
+The following variables will be ignored, as they are very unlikely to have any predictive power. `permalink`,
+which is a hyperlink from the Techcrunch data, and `homepage_url`, which is the company's web page.
+
+
+# Analysis
+
+@@@@ Turn status, country, state etc into factors. Dates from strings to datetime.
+
+## Missing Values
+
+```{r missing-values-counts-table, include = TRUE}
+
+# Based on code from https://jenslaufer.com/data/analysis/visualize_missing_values_with_ggplot.html
+missing_values <- data %>%
+    gather(key = "variable", value = "val") %>%
+    mutate(missing = is.na(val)) %>%
+    group_by(variable, missing) %>%
+    summarise(count = n()) %>%
+    filter(missing==TRUE) %>%
+    select(-missing) %>%
+    arrange(desc(count)) 
+
+kable(missing_values, caption = "Variables With Missing Values Counts")
+rm(missing_values)
+
+```
+    
+```{r missing-values-plot}
+# Based on code from https://jenslaufer.com/data/analysis/visualize_missing_values_with_ggplot.html
+
+# Count how many NAs per variable type, then work out percentage.
+missing_values <- data %>%
+  gather(key = "key", value = "val") %>%
+  mutate(isna = is.na(val)) %>%
+  group_by(key) %>%
+  mutate(total = n()) %>%
+  group_by(key, total, isna) %>%
+  summarise(num.isna = n()) %>%
+  mutate(pct = num.isna / total * 100)
+
+# Order so that least missing are first, this will be used as scale labels. Each key
+# has True and false, so filter to only see one.
+levels <- (missing_values %>% filter(isna == TRUE) %>% arrange(desc(pct)))$key
+
+percentage_plot <- missing_values %>%
+  ggplot() +
+  geom_bar(aes(x = reorder(key, desc(pct)), y = pct, fill=isna),  stat = 'identity', alpha=0.8) +
+  scale_x_discrete(limits = levels) +
+  scale_fill_manual(name = "", values = c('steelblue', 'tomato3'), labels = c("Present", "Missing")) +
+  coord_flip() +
+  labs(title = "Percentage of missing values", x = 'Variable', y = "% of missing values")
+
+percentage_plot
+#rm(missing_values, levels, percentage_plot)
+```
+@@@@ section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than simple linear regression for prediction problems.
+
+# Results 
+
+@@@@ A results section that presents the modeling results and discusses the model performance.
+
+# Conclusion
+
+@@@@ A conclusion section that gives a brief summary of the report, its potential impact, its limitations, and future work.
+
+
+# Bibliography
+
+https://jenslaufer.com/data/analysis/visualize_missing_values_with_ggplot.html
