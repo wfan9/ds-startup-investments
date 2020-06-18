@@ -94,11 +94,6 @@ there is no specific ordering to the list.
 kable(head(data$category_list), caption = "Sample category_list Values")
 ```
 
-### Name
-
-Startup name, there may be some sort of predictive power here. For example, a catchy or memorable startup name
-might attract more attention and lead to more investment, consumer interest etc.
-
 ### Location
 
 There are four variables that describe location.  `country_code` which is a 3 character string, `state_code` a
@@ -159,6 +154,9 @@ round_H
 The following variables will be ignored, as they are very unlikely to have any predictive power. `permalink`,
 which is a hyperlink from the Techcrunch data, and `homepage_url`, which is the company's web page.
 
+Startup `name`, there may be some sort of predictive power here. For example, a catchy or memorable startup name
+might attract more attention and lead to more investment, consumer interest etc. However in terms of this
+dataset it isn't likely to be useful.
 
 # Analysis
 
@@ -231,16 +229,98 @@ be seen:
 ```{r clean-transform-status}
 data <- data %>% filter(!is.na(status)) %>% mutate(status = factor(status))
 ```
-```{r status-hist-plot}
-ggplot(aes(data$status)) + geom_hist()
+
+```{r status-hist-plot, include = TRUE}
+data %>% group_by(status) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(percentage = count * 100 / sum(count)) %>%
+  kable(digits = 1, caption = "Status Counts")
+  #ggplot(aes(data$status)) + geom_histogram(stat = "count")
 ```
 
+Close to 87% of companies in this dataset are operating. This is not representitive of startups in general
+where @@@@ duplicate info?.
+
+### Unused Variables
+
+```{r duplicate-name-counts}
+duplicate_name_counts <-
+data %>% group_by(name) %>%
+ summarise(n = n()) %>%
+ filter(n > 1)
+```
+
+The features `name`, `permalink`, and `homepage_url` are unlikely to have predictive power. However it will be
+useful to have a unique ID to identify rows. Examining the names shows there are actually
+`r nrow(duplicate_name_counts)` names that occur more than once. Some of them are due to duplicated/erroneous
+data, while others are due to different companies having the same name. Cleaning of bad rows is done manually
+by looking at each set of duplicate rows. From first look at the duplicate rows, it is common for the
+`homepage_url` to be the same, so this was used to help reduce the number of rows that needed to be manually
+inspected.
+
+In light of names not being unique, and not all rows having a `homepage_url`, `permalink` will be used as the
+unique ID. However checking `permalink` for duplicates also shows one pair with the same value, which also is
+removed. The `name` and `homepage_url` will not be removed yet as they may help with cleaning of other
+features.
+
+```{r remove-duplicate-rows}
+# Show the rows for manual inspection.
+data %>% filter(name %in% duplicate_name_counts$name)
+
+# Duplicate rows are often indicated by the same home_page
+duplicate_homepages <- data %>%
+  filter(name %in% duplicate_name_counts$name) %>%
+  group_by(homepage_url) %>%
+  summarise(n = n()) %>%
+  filter(n > 1)
+
+# Show rows that are in the duplicate names and have duplicate homepages. This also brings up rows
+# with NA for homepage_url, which are rows that need examining as well.
+data %>% filter(homepage_url %in% duplicate_homepages$homepage_url & name %in% duplicate_name_counts$name)
+
+# permalink's of rows that look like bad data from manual inspection.
+bad_permalink <- c("/organization/adometry-2", "/organization/ayoxxa-biosystems-2",
+"/organization/busportal-2", "/organization/cgtrader-2", "/organization/cue-4", "/organization/gain-fitness",
+"/organization/checkpoints", "/organization/lightex-ltd-", "/organization/realync-2",
+"/organization/trippeace", "/organization/university-of-rochester-2", "/organization/victiv")
+data <- data %>% filter(!(permalink %in% bad_permalink))
+
+# Special case where the permalink is also duplicated, the only way to distinguish between the
+# two is based on another field, such as market.
+data <- data %>% filter(!(permalink == "/organization/treasure-valley-urology-services" & is.na(market)))
+
+# Check for duplicate permalink values not removed during above process.
+data %>% group_by(permalink) %>% summarise(n = n()) %>% filter(n > 1)
+
+# After manually examining the output, use the following to remove the bad row:
+data <- data %>% filter(!(permalink == "/organization/prysm" & is.na(market)))
+```
+
+### Market and Categories
+
+NA values in `market` will be replaced with the string "None".
+
+@@@ Split by status, then plot histograms of counts of markets in that status. Looking to see if there is a
+trend. Counts of how many companies are in that market.
+
+@@@@ Categories, we need to split into components. To use for prediction, need to spread each value of
+category becomes a feature. Do a small example of the resulting matrix, but will not actually do it fully as
+the size will be huge. Split the categories and print out the number of unique categories, and perhaps the
+histogram of the categories. Perhaps a reduced set of categories that occur frequently enough can be used.
+
+```{r removed-unused-features}
+#data <- data %>% select(-permalink, -homepage_url)
+```
 
 @@@@ Turn status, country, state etc into factors. Dates from strings to datetime.
 
 @@@@ What to use for measuring accuracy/loss function?
 
 ## Models
+
+Given the prevalance of companies with the status of opearting is 87%, just guessing the status as operating
+would give us this accuracy, but with no ability to predict for the other statuses.
 
 @@@@ section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than simple linear regression for prediction problems.
 
