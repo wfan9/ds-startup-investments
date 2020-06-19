@@ -57,6 +57,8 @@ if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.
 if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
+if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
+if(!require(stringi)) install.packages("stringi", repos = "http://cran.us.r-project.org")
 ```
 
 ```{r data-setup}
@@ -299,13 +301,115 @@ data <- data %>% filter(!(permalink == "/organization/prysm" & is.na(market)))
 
 ### Market and Categories
 
-NA values in `market` will be replaced with the string "None".
+There are `r unique(data$market)` unique values for market, including NA values which will be replaced with
+the string "Unknown".
 
-@@@ Split by status, then plot histograms of counts of markets in that status. Looking to see if there is a
-trend. Counts of how many companies are in that market.
+```{r clean-market}
+data <- data %>% mutate(market = str_replace_na(market, "Unknown"))
+min_count <- 250
+```
 
-@@@@ Categories, we need to split into components. To use for prediction, need to spread each value of
-category becomes a feature. Do a small example of the resulting matrix, but will not actually do it fully as
+The following histogram plot shows the counts of the status per market (filtered for markets where there are
+at least `r min_count` companies).
+
+```{r market-status-plot}
+# Change colours for graphing so that acquired is marked with green, closed with red, and operating blue.
+status_colours <- c("#00BA38", "#F8766D", "#619CFF")
+
+market_data <- data %>% group_by(market) %>%  
+  filter(n() >= min_count) %>%
+  # We want to reorder in descending order
+  mutate(n  = n()) %>%
+  ungroup() %>%
+  mutate(market = reorder(market, n))
+
+market_data %>%
+  ggplot(aes(market, fill = status)) +
+  geom_histogram(stat = "count") +
+  scale_fill_manual(values = status_colours) +
+  coord_flip()
+rm(min_count)
+```
+
+The above plot shows the proportion of statuses are not uniform and vary by market type. This is better
+visualized by plotting percentages of each status per market:
+
+```{r market-status-proportion-plot}
+status_percentages <- market_data %>% group_by(market) %>%
+  mutate(n_market = n()) %>%
+  group_by(market, status) %>%
+  mutate(percentage = n() * 100/ n_market) %>%
+  select(market, status, percentage) %>%
+  unique()
+  
+status_percentages %>%
+  ggplot(aes(market, percentage, fill = status)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = status_colours) +
+  coord_flip()
+
+rm(market_data, status_percentages)
+```
+
+```{r category_list-clean}
+data <- data %>% mutate(category_list = str_replace_na(category_list, "|Unknown|"))
+
+# Look for values that don't match expected pattern. There are 6 which appear truncated, which we don't do
+# anything about.
+data %>% filter(!str_detect(category_list, "^\\|.+\\|$")) %>% .$category_list
+```
+
+NA values for `category_list` will be treated the same as for `market` by replacing them with "Unknown".
+Looking at the data shows there are 6 rows where there is truncation, however these will be left as they are
+since there are only a few.
+
+The `category_list` field needs to be split into individual categories to look for status - category relationships.
+
+```{r split-category_list}
+category_data <- data %>% separate_rows(category_list, sep = "\\|") %>%
+  filter(str_length(category_list) > 0) %>%
+  mutate(category = category_list)
+```
+
+There are `r n_distinct(category_data$category)` categories. Creating plots similar to those for `market`:
+
+```{r category-status-plot}
+min_count <- 750
+cat_data <- category_data %>% group_by(category) %>%  
+  filter(n() >= min_count) %>%
+  # We want to reorder in descending order
+  mutate(n  = n()) %>%
+  ungroup() %>%
+  mutate(category = reorder(category, n))
+
+cat_data %>%
+  ggplot(aes(category, fill = status)) +
+  geom_histogram(stat = "count") +
+  scale_fill_manual(values = status_colours) +
+  coord_flip()
+rm(min_count)
+```
+
+```{r category-status-proportion-plot}
+status_percentages <- cat_data %>% group_by(category) %>%
+  mutate(n_category = n()) %>%
+  group_by(category, status) %>%
+  mutate(percentage = n() * 100/ n_category) %>%
+  select(category, status, percentage) %>%
+  unique()
+  
+status_percentages %>%
+  ggplot(aes(category, percentage, fill = status)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = status_colours) +
+  coord_flip()
+
+#rm(category_data, cat_data, status_percentages)
+```
+
+@@@@ 
+* Use set operations to determine that category values are a super set of market values.
+* To use for prediction, need to spread each value of category becomes a feature, with True or False. Do a small example of the resulting matrix, but will not actually do it fully as
 the size will be huge. Split the categories and print out the number of unique categories, and perhaps the
 histogram of the categories. Perhaps a reduced set of categories that occur frequently enough can be used.
 
