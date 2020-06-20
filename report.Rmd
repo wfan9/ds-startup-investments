@@ -162,10 +162,9 @@ dataset it isn't likely to be useful.
 
 # Analysis
 
-## Data Exploration And Analysis
+## Data Cleaning
 
-The first step is to examine the data, looking for missing data, bad/invalid values, and possible
-transformations that will improve the accuracy of the classification model being developed.
+The first step is to examine the data, looking for missing data and bad/invalid values, and wrong data types.
 
 ### Missing Values
 
@@ -217,6 +216,7 @@ percentage_plot <- missing_values %>%
   labs(title = "Percentage of missing values", x = 'Variable', y = "% of missing values")
 
 percentage_plot
+rm(levels, percentage_plot)
 #rm(missing_values, levels, percentage_plot)
 ```
 
@@ -231,18 +231,6 @@ be seen:
 ```{r clean-transform-status}
 data <- data %>% filter(!is.na(status)) %>% mutate(status = factor(status))
 ```
-
-```{r status-hist-plot, include = TRUE}
-data %>% group_by(status) %>%
-  summarise(count = n()) %>%
-  ungroup() %>%
-  mutate(percentage = count * 100 / sum(count)) %>%
-  kable(digits = 1, caption = "Status Counts")
-  #ggplot(aes(data$status)) + geom_histogram(stat = "count")
-```
-
-Close to 87% of companies in this dataset are operating. This is not representitive of startups in general
-where @@@@ duplicate info?.
 
 ### Unused Variables
 
@@ -301,18 +289,165 @@ data <- data %>% filter(!(permalink == "/organization/prysm" & is.na(market)))
 
 ### Market and Categories
 
-There are `r unique(data$market)` unique values for market, including NA values which will be replaced with
+There are `r n_distinct(data$market)` unique values for market, including NA values which will be replaced with
 the string "Unknown".
 
 ```{r clean-market}
 data <- data %>% mutate(market = str_replace_na(market, "Unknown"))
+all_markets <- unique(data$market)
 min_count <- 250
 ```
+
+NA values for `category_list` will be treated the same as for `market` by replacing them with "Unknown".
+Looking at the data shows there are 6 rows where there is truncation, however these will not be changed
+since there are only a few.
+
+```{r category_list-clean}
+data <- data %>% mutate(category_list = str_replace_na(category_list, "|Unknown|"))
+
+# Look for values that don't match expected pattern. There are 6 which appear truncated, which we don't do
+# anything about.
+data %>% filter(!str_detect(category_list, "^\\|.+\\|$")) %>% .$category_list
+```
+
+```{r split-category_list}
+category_data <- data %>% separate_rows(category_list, sep = "\\|") %>%
+  filter(str_length(category_list) > 0) %>%
+  mutate(category = category_list)
+all_categories <- unique(category_data$category)
+```
+
+The `category_list` field needs to be split into individual categories to look for status - category
+relationships. There are `r length(all_categories)` categories.
+
+### Date
+
+The columns `founded_year`, `founded_quarter`, and `founded_month` should have been derived from `founded_at`,
+so these will be removed and recreated if needed from the cleaned `founded_at` variable.
+```{r remove-derived-date-vars}
+data <- data %>% select(-founded_year, -founded_quarter, -founded_month)
+```
+
+```{r show-date-ranges, include = TRUE}
+summarise_dates <- function() {
+  data %>% filter(!is.na(founded_at)) %>%
+    summarise(min_founded = min(founded_at),
+              max_founded = max(founded_at),
+              min_first_fund = min(first_funding_at),
+              max_first_fund = max(first_funding_at),
+              min_last_fund = min(last_funding_at),
+              max_last_fund = max(last_funding_at))
+}
+
+summarise_dates() %>% kable(caption = "Min/Max Dates")
+```
+
+There are "startups" that were founded in the 1800's. Companies that old are not likely to be considered
+startups. Somewhat arbitrarily, restrict the range to companies founded in or after the 1990's.
+
+It can be seen that `first_funding_at` and `last_funding_at` have invalid values, which need correction. In
+additon there are companies founded in the 1800's.
+
+```{r check-date-format-founded_at}
+# Show any rows that have a bad founded_at value
+data %>% filter(!is.na(founded_at)) %>% filter(!is_valid_date(founded_at))
+```
+
+```{r check-date-format-first_funding_at, include = TRUE}
+is_valid_date <- function(d) {
+  str_detect(d, "^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+}
+data %>% filter(!is.na(first_funding_at)) %>%
+  filter(!is_valid_date(first_funding_at)) %>%
+  select(permalink, founded_at, first_funding_at, last_funding_at) %>%
+  kable(caption = "Bad Date Format first_funding_at")
+```
+
+```{r check-date-format-last_funding_at, include = TRUE}
+data %>% filter(!is.na(last_funding_at)) %>%
+  filter(!is_valid_date(last_funding_at)) %>%
+  select(permalink, founded_at, first_funding_at, last_funding_at) %>%
+  kable(caption = "Bad Date Format last_funding_at")
+```
+
+These show 10 rows that will manually be corrected.
+```{r fix-funding-dates}
+data[which(data$permalink == "/organization/fitfrnd-2"), "first_funding_at"] <- as_datetime("2014-11-26")
+data[which(data$permalink == "/organization/fitfrnd-2"), "last_funding_at"] <- as_datetime("2014-11-26")
+data[which(data$permalink == "/organization/agflow"), "first_funding_at"] <- as_datetime("2013-06-01")
+data[which(data$permalink == "/organization/buru-buru"), "first_funding_at"] <- as_datetime("2013-04-01")
+data[which(data$permalink == "/organization/exploco"), "first_funding_at"] <- as_datetime("2014-10-01")
+data[which(data$permalink == "/organization/exploco"), "last_funding_at"] <- as_datetime("2014-10-01")
+data[which(data$permalink == "/organization/nubank"), "first_funding_at"] <- as_datetime("2013-05-07")
+data[which(data$permalink == "/organization/peoplegoal"), "first_funding_at"] <- as_datetime("2014-05-01")
+data[which(data$permalink == "/organization/peoplegoal"), "last_funding_at"] <- as_datetime("2014-05-01")
+data[which(data$permalink == "/organization/rotor"), "first_funding_at"] <- as_datetime("2014-09-29")
+data[which(data$permalink == "/organization/rotor"), "last_funding_at"] <- as_datetime("2014-09-29")
+data[which(data$permalink == "/organization/securenet-payment-systems"), "first_funding_at"] <- as_datetime("1997-01-01")
+data[which(data$permalink == "/organization/shopboostr"), "first_funding_at"] <- as_datetime("2014-11-01")
+data[which(data$permalink == "/organization/shopboostr"), "last_funding_at"] <- as_datetime("2014-11-01")
+data[which(data$permalink == "/organization/the-urban-roosters"), "first_funding_at"] <- as_datetime("2014-07-01")
+data[which(data$permalink == "/organization/the-urban-roosters"), "last_funding_at"] <- as_datetime("2014-07-01")
+
+summarise_dates() %>% kable(caption = "Corrected Min/Max Dates")
+```
+
+```{r remove-old-companies}
+data <- data %>% filter(founded_at >= "1990-01-01")
+```
+
+
+A first step is to check that the strings match expected format `YYYY-MM-DD`. All non-NA values for `founded_at` match this.
+
+At this point it isn't obvious how NA values should be dealt with.
+```{r convert-to-datetime}
+#data <- data %>% mutate(founded_at = as_datetime(founded_at),
+foo <- data %>% mutate(founded_at = as_datetime(founded_at),
+                        first_funding_at = as_datetime(first_funding_at),
+                        last_funding_at = as_datetime(last_funding_at)) %>%
+  mutate(founded_year = round_date(founded_at, unit = "year"),
+         founded_quarter = round_date(founded_at, unit = "quarter"),
+         founded_month = round_date(founded_at, unit = "month"))
+
+# Check dates are in the correct order
+data %>% filter(first_funding_at > last_funding_at)
+```
+
+
+@@@@ 
+* Use set operations to determine that category values are a super set of market values.
+* To use for prediction, need to spread each value of category becomes a feature, with True or False. Do a small example of the resulting matrix, but will not actually do it fully as
+the size will be huge. Split the categories and print out the number of unique categories, and perhaps the
+histogram of the categories. Perhaps a reduced set of categories that occur frequently enough can be used.
+
+```{r removed-unused-features}
+#data <- data %>% select(-permalink, -homepage_url)
+```
+
+## Data Exploration
+
+### Status
+
+The three status values have the following counts:
+
+```{r status-hist-plot, include = TRUE}
+data %>% group_by(status) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(percentage = count * 100 / sum(count)) %>%
+  kable(digits = 1, caption = "Status Counts")
+  #ggplot(aes(data$status)) + geom_histogram(stat = "count")
+```
+
+Close to 87% of companies in this dataset are operating. This is not representitive of startups in general
+where @@@@ duplicate info?.
+
+### Market and Categories
 
 The following histogram plot shows the counts of the status per market (filtered for markets where there are
 at least `r min_count` companies).
 
-```{r market-status-plot}
+```{r market-status-plot, include = TRUE}
 # Change colours for graphing so that acquired is marked with green, closed with red, and operating blue.
 status_colours <- c("#00BA38", "#F8766D", "#619CFF")
 
@@ -334,46 +469,26 @@ rm(min_count)
 The above plot shows the proportion of statuses are not uniform and vary by market type. This is better
 visualized by plotting percentages of each status per market:
 
-```{r market-status-proportion-plot}
-status_percentages <- market_data %>% group_by(market) %>%
+```{r market-status-proportion-plot, include = TRUE}
+market_status_percentages <- market_data %>% group_by(market) %>%
   mutate(n_market = n()) %>%
   group_by(market, status) %>%
   mutate(percentage = n() * 100/ n_market) %>%
   select(market, status, percentage) %>%
   unique()
   
-status_percentages %>%
+market_status_percentages %>%
   ggplot(aes(market, percentage, fill = status)) +
   geom_bar(stat = "identity") +
   scale_fill_manual(values = status_colours) +
   coord_flip()
 
-rm(market_data, status_percentages)
+rm(market_data)
 ```
 
-```{r category_list-clean}
-data <- data %>% mutate(category_list = str_replace_na(category_list, "|Unknown|"))
+Creating plots similar to those for `market`:
 
-# Look for values that don't match expected pattern. There are 6 which appear truncated, which we don't do
-# anything about.
-data %>% filter(!str_detect(category_list, "^\\|.+\\|$")) %>% .$category_list
-```
-
-NA values for `category_list` will be treated the same as for `market` by replacing them with "Unknown".
-Looking at the data shows there are 6 rows where there is truncation, however these will be left as they are
-since there are only a few.
-
-The `category_list` field needs to be split into individual categories to look for status - category relationships.
-
-```{r split-category_list}
-category_data <- data %>% separate_rows(category_list, sep = "\\|") %>%
-  filter(str_length(category_list) > 0) %>%
-  mutate(category = category_list)
-```
-
-There are `r n_distinct(category_data$category)` categories. Creating plots similar to those for `market`:
-
-```{r category-status-plot}
+```{r category-status-plot, include = TRUE}
 min_count <- 750
 cat_data <- category_data %>% group_by(category) %>%  
   filter(n() >= min_count) %>%
@@ -390,32 +505,35 @@ cat_data %>%
 rm(min_count)
 ```
 
-```{r category-status-proportion-plot}
-status_percentages <- cat_data %>% group_by(category) %>%
+```{r category-status-proportion-plot, include  = TRUE}
+category_status_percentages <- cat_data %>% group_by(category) %>%
   mutate(n_category = n()) %>%
   group_by(category, status) %>%
   mutate(percentage = n() * 100/ n_category) %>%
   select(category, status, percentage) %>%
   unique()
   
-status_percentages %>%
+category_status_percentages %>%
   ggplot(aes(category, percentage, fill = status)) +
   geom_bar(stat = "identity") +
   scale_fill_manual(values = status_colours) +
   coord_flip()
 
-#rm(category_data, cat_data, status_percentages)
+rm(category_data, cat_data)
+#mark_per %>%
+  #left_join(cat_per, by = c("market" = "category", "status" = "status")) %>%
+  #arrange(market)
 ```
 
-@@@@ 
-* Use set operations to determine that category values are a super set of market values.
-* To use for prediction, need to spread each value of category becomes a feature, with True or False. Do a small example of the resulting matrix, but will not actually do it fully as
-the size will be huge. Split the categories and print out the number of unique categories, and perhaps the
-histogram of the categories. Perhaps a reduced set of categories that occur frequently enough can be used.
+To use categories for prediction, they need to be spread so that each category is a feature (with type
+logical). 
 
-```{r removed-unused-features}
-#data <- data %>% select(-permalink, -homepage_url)
+```{r market-vs-category-values}
+
+
 ```
+
+### Date
 
 @@@@ Turn status, country, state etc into factors. Dates from strings to datetime.
 
