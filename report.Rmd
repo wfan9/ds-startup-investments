@@ -16,17 +16,17 @@ output:
 knitr::opts_chunk$set(include = FALSE, echo = FALSE, warning = FALSE, message = FALSE, error = FALSE, cache = TRUE, comment = NA)
 
 # Save/load computationally expensive data to/from file to save time during development.
-use_cache <- TRUE
+use_cache <- FALSE
 ```
 
 ```{r download-bibliography}
 dl <- "references-dl.bib"
-download.file("https://github.com/wfan9/ds-startup-investments/blob/master/references.bib", dl)
+download.file("https://raw.githubusercontent.com/wfan9/ds-startup-investments/master/references.bib", dl)
 ```
 
 # Introduction
 
-The aim of this report is to develop a classification model to predict the status of a startup based primarily
+The aim of this report is to develop a classification model to predict the status of a startup, based primarily
 on the funding of the company. The data set used is "StartUp Investments (Crunchbase)", available from Kaggle.
 It provides the status of a company (acquired, operating, or closed), funding and other feature data.
 
@@ -70,7 +70,7 @@ interpretations are assumed.
 
 ### Market and Categories
 
-The `market` variable is string representing the main market the startup is targeting.
+The `market` variable is a string representing the main market the startup is targeting.
 `category_list` contains one or more categories the startup belongs to. Each category is separated by a |, and
 there is no specific ordering to the list.
 
@@ -99,7 +99,7 @@ The following features represents date related data, and are self explanatory:
 
 ### Funding
 
-The variable 'funding_total_usd' represents total funding in US dollars, `funding_rounds` how many rounds
+The variable `funding_total_usd` represents total funding in US dollars, `funding_rounds` how many rounds
 (round A, B etc), and the rest represent the total broken down by type (angel investor, venture capital etc).
 
 ### Ignored Variables
@@ -107,8 +107,8 @@ The variable 'funding_total_usd' represents total funding in US dollars, `fundin
 The following variables will be ignored, as they are very unlikely to have any predictive power. `permalink`,
 which is a hyperlink from the Techcrunch data, and `homepage_url`, which is the company's web page.
 
-Startup `name`, there may be some sort of predictive power here. For example, a catchy or memorable startup name
-might attract more attention and lead to more investment, consumer interest etc. However in terms of this
+The variable `name`, may be some sort of predictive power here. For example, a catchy or memorable startup
+name might attract more attention and lead to more investment, consumer interest etc. However in terms of this
 dataset it isn't likely to be useful.
 
 # Analysis
@@ -164,7 +164,7 @@ percentage_plot <- missing_values %>%
   scale_x_discrete(limits = levels) +
   scale_fill_manual(name = "", values = c('steelblue', 'tomato3'), labels = c("Present", "Missing")) +
   coord_flip() +
-  labs(title = "Percentage of missing values", x = 'Variable', y = "% of missing values")
+  labs(title = "Percentage of Missing Values", x = 'Variable', y = "% of missing values")
 
 percentage_plot
 rm(levels, percentage_plot)
@@ -292,7 +292,7 @@ summarise_dates <- function() {
 summarise_dates() %>% kable(caption = "Min/Max Dates")
 ```
 
-There are "startups" that were founded in the 1800's. Companies that old are not likely to be considered
+There are "startups" that were founded in the 1600's. Companies that old are not likely to be considered
 startups. Somewhat arbitrarily, restrict the range to companies founded in or after the 1990's.
 
 ```{r remove-old-companies}
@@ -427,14 +427,14 @@ data <- data %>% replace_na(list(country_code = "ZZZ", region = "Unknown", city 
 
 The `funding_total_usd` variable has been read in as type character. As an example:
 ```{r funding-total-usd-example-row, include = TRUE}
-data[1, c("name", "funding_total_usd", "seed", "venture")]
+data[1, c("name", "funding_total_usd", "seed", "venture")] %>% kable(caption = "Funding Sample")
 ```
 
 From this it can be seen that the correct intepretation of `r data[1, "funding_total_usd"]` is the same as the
 value in the `seed` column i.e. `r data[1, "seed"]`. Converting involves stripping the comma, then converting
 to numeric type.
 
-In addition, there are values consisting of a single dash characters indicating a missing value. Rows with
+In addition, there are values consisting of a single dash character indicating a missing value. Rows with
 these values will be dropped.
 
 ```{r clean-funding}
@@ -596,10 +596,6 @@ create_status_percentages_plot(category_status_percentages, category, TRUE)
 rm(split_category_data, category_data)
 ```
 
-To use categories for prediction, they need to be spread so that each category is a feature (with type
-logical). Instead the choice is made to ignore the more specific `categories_list` feature and use the overall
-single valued `market` feature.
-
 ### Date
 
 Plotting the status vs years:
@@ -711,18 +707,26 @@ city_data %>% calc_status_percentages(city) %>% create_status_percentages_plot(c
 rm(city_data)
 ```
 
+At the city level there is also stronger variation than at the region, but using this is likely too fine
+grained and lead to overfitting.
+
 ### Funding
+
+Box plot of funding against status shows startups with acquired status tend to have more funding, and those
+with closed status slightly less funding.
+
+```{r status-funding-box-plot, include = TRUE}
+data %>% group_by(status) %>%
+  ggplot(aes(status, funding_total_usd)) +
+  geom_boxplot() +
+  scale_y_log10()
+```
 
 A frequency plot of log10 of the funding shows that the operating status dominates across all funding values,
 but there are still ranges where there is an increased chance of a company having the closed or acquired
 status.
 
-```{r status-funding-plot, include = TRUE}
-data %>% group_by(status) %>%
-  ggplot(aes(status, funding_total_usd)) +
-  geom_boxplot() +
-  scale_y_log10()
-
+```{r status-funding-freq-plot, include = TRUE}
 data %>% group_by(status) %>%
   mutate(log_funding = log10(funding_total_usd)) %>%
   #ggplot(aes(log_funding, fill = status)) +
@@ -797,7 +801,7 @@ From location based features, `country_code` and `region` are selected. The prop
 companies based in the US, compared to the rest of the world. At the regional level, there are also large
 differences where the SF Bay Area (Sillicon Valley) has the highest proportion of acquired startups.
 
-Most of the funding based features were zero and of no use, the two used are `funding_total_usd` and
+Most of the funding based features had zero variation and of no use, the two used are `funding_total_usd` and
 `funding_rounds`.
 
 One of the models choosen is multinomial logistic classification using the `multinom` function from the `nnet`
@@ -820,7 +824,7 @@ formula <- status ~ country_code + region + market + funding + rounds + founded_
 ```
 
 The data is then split into 3 sets, a training set for building the models (70%), a validation set that is used to
-help the building and evaluation of models (15%), and a test set that is only used to test final accuracy
+help the building and evaluation of models (15%), and a test set that is only used to test final model accuracy
 (15%). Note, this definition of test and validation sets differs from the naming used in the MovieLens
 project, but is the common usage.
 
@@ -849,7 +853,7 @@ trialled.
 * Oversampling, randomly copying rows from the minority categories to increase their numbers.
 
 * SMOTE, Synthetic Minority Oversampling TEchnique where minority categories have synthetic data created based
-  on exsiting minority data.
+  on existing minority data.
 
 These methods are implemented in the `UBL` package.
 
@@ -908,7 +912,7 @@ over sampled. Then predictions were carried out against the validation set.
 
 The confusion matrix for the unbalanced data trained model:
 
-```{r multinom-orig-cm}
+```{r multinom-orig-cm, include = TRUE}
 multinom_cm
 ```
 
@@ -919,7 +923,7 @@ the closed case.
 
 The SMOTE data set model has the following confusion matrix:
 
-```{r multinom-smote-cm}
+```{r multinom-smote-cm, include = TRUE}
 smoted_multinom_cm
 ```
 
@@ -952,21 +956,19 @@ smoted_tree_cm <- confusionMatrix(smoted_tree_preds, validation_set$status)
 
 Models were built against the original unbalanced data, and the SMOTE data. The unbalanced data model:
 
-```{r tree-cm}
+```{r tree-cm, include = TRUE}
 tree_cm
 ```
 
 As can be seen from the confusion matrix, the model is always predicting the status of operating. For the
 SMOTE data trained model:
 
-```{r smote-tree-cm}
+```{r smote-tree-cm, include = TRUE}
 smoted_tree_cm
 ```
 
 Overall accuracy is slightly better than the multinomial logistic classifier, but it doesn't do as well on
 predicting the minority classes.
-
-@@@@ section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than simple linear regression for prediction problems.
 
 # Results 
 
@@ -994,11 +996,9 @@ accuracy on the minority statuses. The balanced accuracy is much better on the S
 project, the use of a rebalancing method was essential to allow the model to be able to predict the minority
 statuses that had small prevalences of around 8% and 5%.
 
-@@@@ A results section that presents the modeling results and discusses the model performance.
-
 # Conclusion
 
-In this project, a multinomial logistic classification model was created to predict the status of a startup,
+In this project, a multinomial logistic classification model was created to predict the status of startups,
 based on 8 features such as its market, country, region, funding in USD, founding year etc.  The data was
 heavily unbalanced, with the prevalence of the majority status approximately 86%. Through the use of the SMOTE
 balancing technique applied to the training data, the model was able to reach a balanced accuracy score of
