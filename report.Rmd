@@ -1,7 +1,7 @@
 ---
 title: "Predicting Startup Status"
 author: "William Fang"
-date: "15/06/2020"
+date: "23/06/2020"
 geometry: "left=3cm,right=3cm,top=2cm,bottom=2cm"
 bibliography: references-dl.bib
 link-citations: true
@@ -16,39 +16,22 @@ output:
 knitr::opts_chunk$set(include = FALSE, echo = FALSE, warning = FALSE, message = FALSE, error = FALSE, cache = TRUE, comment = NA)
 
 # Save/load computationally expensive data to/from file to save time during development.
-use_cache <- FALSE
+use_cache <- TRUE
 ```
 
 ```{r download-bibliography}
-#download.file(
+dl <- "references-dl.bib"
+download.file("https://github.com/wfan9/ds-startup-investments/blob/master/references.bib", dl)
 ```
 
 # Introduction
 
-@@@@ Rework to focus on this dataset, not representative of startups in general, put that in results
-discussion. Also not well defined the time range.
+The aim of this report is to develop a classification model to predict the status of a startup based primarily
+on the funding of the company. The data set used is "StartUp Investments (Crunchbase)", available from Kaggle.
+It provides the status of a company (acquired, operating, or closed), funding and other feature data.
 
-While "Unicorn" startups (companies valued at over \$1 billion) receive the most coverage, the vast majority
-of startups fail. Various statistics on the failure rate can be found on the internet, (90% according to
-@startup-fail-90), but in general terms the odds of success are small. The aim of this report is to develop a
-model to predict the status of a startup based primarily on the funding of the company. The data set used is
-"StartUp Investments (Crunchbase)", available from Kaggle. It provides the status of a company (acquired,
-operating, or closed), funding and other feature data.
-
-@@@@ Section that describes the dataset and variables, and summarizes the goal of the project and key steps that were performed.
-
-Steps:
-
-    Load and clean the data.
-
-    Split into training and validation sets.
-
-    Explore the data.
-
-    Create and train models, 
-
-    Test against validation set
-
+Data was first cleaned, then explored and analysed to allow selection of features and models to apply. The
+data was split into training and validation sets, then models trained and evaluated against these sets.
 
 ```{r required-packages, cache = FALSE}
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
@@ -63,11 +46,10 @@ if(!require(stringi)) install.packages("stringi", repos = "http://cran.us.r-proj
 
 ```{r data-setup}
 
+# Download and read.
 dl <- tempfile()
 download.file("https://github.com/wfan9/ds-startup-investments/raw/master/data/517018_952128_compressed_investments_VC.csv.zip", dl)
 data <- read_csv(unzip(dl))
-
-str(data)
 
 rm(dl)
 ```
@@ -75,9 +57,9 @@ The data set can be downloaded as a zipped CSV file, and has been added to the g
 project. The uncompressed file is approximately 12Mb, and there are `r nrow(data)` rows, and
 `r length(names(data))` variables.
 
-## Variables
+## Data Features
 
-The variable names are as below:
+The variable names of the data frame are as below:
 
 ```{r variables-table, include = TRUE}
 names(data)
@@ -108,48 +90,17 @@ The focus of this report is to create a model for predicting status. The variabl
 ```{r status-values, include = TRUE}
 kable(unique(data$status), caption = "Status Values")
 ```
-There are companies with a missing status value, these will be removed as they can't be used.
+There are companies with a missing status value, these rows will be removed as they can't be used.
 
 ### Date
 
-@@@@ Describe
-
-founded_at
-founded_month
-founded_quarter
-founded_year
-first_funding_at
-last_funding_at
+The following features represents date related data, and are self explanatory:
+`founded_at`, `founded_month`, `founded_quarter`, `founded_year`, `first_funding_at`, `last_funding_at`
 
 ### Funding
 
-@@@@ Describe
-
-funding_total_usd
-funding_rounds
-seed
-venture
-equity_crowdfunding
-undisclosed
-convertible_note
-debt_financing
-angel
-grant
-private_equity
-post_ipo_equity
-post_ipo_debt
-secondary_market
-product_crowdfunding
-
-round_A
-round_B
-round_C
-round_D             
-round_E
-round_F
-round_G
-round_H
-
+The variable 'funding_total_usd' represents total funding in US dollars, `funding_rounds` how many rounds
+(round A, B etc), and the rest represent the total broken down by type (angel investor, venture capital etc).
 
 ### Ignored Variables
 
@@ -217,7 +168,7 @@ percentage_plot <- missing_values %>%
 
 percentage_plot
 rm(levels, percentage_plot)
-#rm(missing_values, levels, percentage_plot)
+rm(missing_values, levels, percentage_plot)
 ```
 
 Handling of NA values for the rest of the variables will be discussed in the following sections.
@@ -225,11 +176,11 @@ Handling of NA values for the rest of the variables will be discussed in the fol
 ### Status
 
 Since the aim is to predict the status of a company, the rows that don't have a valid status can't be used and
-are simply removed. The data type is changed from character to factor. Then the counts of the 3 statuses can
-be seen:
+are simply removed. The data type is changed from character to factor.
 
 ```{r clean-transform-status}
-data <- data %>% filter(!is.na(status)) %>% mutate(status = factor(status))
+data <- data %>% filter(!is.na(status)) %>%
+  mutate(status = factor(status, levels = c("operating", "acquired", "closed")))
 ```
 
 ### Unused Variables
@@ -245,7 +196,7 @@ The features `name`, `permalink`, and `homepage_url` are unlikely to have predic
 useful to have a unique ID to identify rows. Examining the names shows there are actually
 `r nrow(duplicate_name_counts)` names that occur more than once. Some of them are due to duplicated/erroneous
 data, while others are due to different companies having the same name. Cleaning of bad rows is done manually
-by looking at each set of duplicate rows. From first look at the duplicate rows, it is common for the
+by looking at each set of duplicate rows. From a first look at the duplicate rows, it is common for the
 `homepage_url` to be the same, so this was used to help reduce the number of rows that needed to be manually
 inspected.
 
@@ -290,12 +241,11 @@ data <- data %>% filter(!(permalink == "/organization/prysm" & is.na(market)))
 ### Market and Categories
 
 There are `r n_distinct(data$market)` unique values for market, including NA values which will be replaced with
-the string "Unknown".
+the string "Unknown", and the type converted to factor.
 
 ```{r clean-market}
-data <- data %>% mutate(market = str_replace_na(market, "Unknown"))
+data <- data %>% mutate(market = str_replace_na(market, "Unknown")) %>% mutate(market = factor(market))
 all_markets <- unique(data$market)
-min_count <- 250
 ```
 
 NA values for `category_list` will be treated the same as for `market` by replacing them with "Unknown".
@@ -311,10 +261,10 @@ data %>% filter(!str_detect(category_list, "^\\|.+\\|$")) %>% .$category_list
 ```
 
 ```{r split-category_list}
-category_data <- data %>% separate_rows(category_list, sep = "\\|") %>%
+split_category_data <- data %>% separate_rows(category_list, sep = "\\|") %>%
   filter(str_length(category_list) > 0) %>%
   mutate(category = category_list)
-all_categories <- unique(category_data$category)
+all_categories <- unique(split_category_data$category)
 ```
 
 The `category_list` field needs to be split into individual categories to look for status - category
@@ -345,18 +295,21 @@ summarise_dates() %>% kable(caption = "Min/Max Dates")
 There are "startups" that were founded in the 1800's. Companies that old are not likely to be considered
 startups. Somewhat arbitrarily, restrict the range to companies founded in or after the 1990's.
 
-It can be seen that `first_funding_at` and `last_funding_at` have invalid values, which need correction. In
-additon there are companies founded in the 1800's.
+```{r remove-old-companies}
+data <- data %>% filter(founded_at >= as_date("1990-01-01"))
+```
+
+It can be seen that `first_funding_at` and `last_funding_at` have invalid values, which need correction.
 
 ```{r check-date-format-founded_at}
+is_valid_date <- function(d) {
+  str_detect(d, "^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+}
 # Show any rows that have a bad founded_at value
 data %>% filter(!is.na(founded_at)) %>% filter(!is_valid_date(founded_at))
 ```
 
 ```{r check-date-format-first_funding_at, include = TRUE}
-is_valid_date <- function(d) {
-  str_detect(d, "^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-}
 data %>% filter(!is.na(first_funding_at)) %>%
   filter(!is_valid_date(first_funding_at)) %>%
   select(permalink, founded_at, first_funding_at, last_funding_at) %>%
@@ -372,188 +325,692 @@ data %>% filter(!is.na(last_funding_at)) %>%
 
 These show 10 rows that will manually be corrected.
 ```{r fix-funding-dates}
-data[which(data$permalink == "/organization/fitfrnd-2"), "first_funding_at"] <- as_datetime("2014-11-26")
-data[which(data$permalink == "/organization/fitfrnd-2"), "last_funding_at"] <- as_datetime("2014-11-26")
-data[which(data$permalink == "/organization/agflow"), "first_funding_at"] <- as_datetime("2013-06-01")
-data[which(data$permalink == "/organization/buru-buru"), "first_funding_at"] <- as_datetime("2013-04-01")
-data[which(data$permalink == "/organization/exploco"), "first_funding_at"] <- as_datetime("2014-10-01")
-data[which(data$permalink == "/organization/exploco"), "last_funding_at"] <- as_datetime("2014-10-01")
-data[which(data$permalink == "/organization/nubank"), "first_funding_at"] <- as_datetime("2013-05-07")
-data[which(data$permalink == "/organization/peoplegoal"), "first_funding_at"] <- as_datetime("2014-05-01")
-data[which(data$permalink == "/organization/peoplegoal"), "last_funding_at"] <- as_datetime("2014-05-01")
-data[which(data$permalink == "/organization/rotor"), "first_funding_at"] <- as_datetime("2014-09-29")
-data[which(data$permalink == "/organization/rotor"), "last_funding_at"] <- as_datetime("2014-09-29")
-data[which(data$permalink == "/organization/securenet-payment-systems"), "first_funding_at"] <- as_datetime("1997-01-01")
-data[which(data$permalink == "/organization/shopboostr"), "first_funding_at"] <- as_datetime("2014-11-01")
-data[which(data$permalink == "/organization/shopboostr"), "last_funding_at"] <- as_datetime("2014-11-01")
-data[which(data$permalink == "/organization/the-urban-roosters"), "first_funding_at"] <- as_datetime("2014-07-01")
-data[which(data$permalink == "/organization/the-urban-roosters"), "last_funding_at"] <- as_datetime("2014-07-01")
+data[which(data$permalink == "/organization/fitfrnd-2"), "first_funding_at"] <- as_date("2014-11-26")
+data[which(data$permalink == "/organization/fitfrnd-2"), "last_funding_at"] <- as_date("2014-11-26")
+data[which(data$permalink == "/organization/agflow"), "first_funding_at"] <- as_date("2013-06-01")
+data[which(data$permalink == "/organization/buru-buru"), "first_funding_at"] <- as_date("2013-04-01")
+data[which(data$permalink == "/organization/exploco"), "first_funding_at"] <- as_date("2014-10-01")
+data[which(data$permalink == "/organization/exploco"), "last_funding_at"] <- as_date("2014-10-01")
+data[which(data$permalink == "/organization/nubank"), "first_funding_at"] <- as_date("2013-05-07")
+data[which(data$permalink == "/organization/peoplegoal"), "first_funding_at"] <- as_date("2014-05-01")
+data[which(data$permalink == "/organization/peoplegoal"), "last_funding_at"] <- as_date("2014-05-01")
+data[which(data$permalink == "/organization/rotor"), "first_funding_at"] <- as_date("2014-09-29")
+data[which(data$permalink == "/organization/rotor"), "last_funding_at"] <- as_date("2014-09-29")
+data[which(data$permalink == "/organization/securenet-payment-systems"), "first_funding_at"] <- as_date("1997-01-01")
+data[which(data$permalink == "/organization/shopboostr"), "first_funding_at"] <- as_date("2014-11-01")
+data[which(data$permalink == "/organization/shopboostr"), "last_funding_at"] <- as_date("2014-11-01")
+data[which(data$permalink == "/organization/the-urban-roosters"), "first_funding_at"] <- as_date("2014-07-01")
+data[which(data$permalink == "/organization/the-urban-roosters"), "last_funding_at"] <- as_date("2014-07-01")
 
 summarise_dates() %>% kable(caption = "Corrected Min/Max Dates")
+
+# Check again none of these have NA values.
+any(is.na(data$first_funding_at))
+any(is.na(data$last_funding_at))
 ```
 
-```{r remove-old-companies}
-data <- data %>% filter(founded_at >= "1990-01-01")
+The funding at variables have no missing values, while `founded_at` does. A reasonable value to use in place
+of misssing values is `first_funding_at`.
+
+```{r replace-NA-founded_at}
+data <- data %>% mutate(founded_at = if_else(is.na(founded_at), first_funding_at, founded_at))
+
+any(is.na(data$founded_at))
 ```
 
+```{r check-date-relationships}
+# See if there are any first funding dates later than last funding.
+sum(data$first_funding_at > data$last_funding_at)
 
-A first step is to check that the strings match expected format `YYYY-MM-DD`. All non-NA values for `founded_at` match this.
-
-At this point it isn't obvious how NA values should be dealt with.
-```{r convert-to-datetime}
-#data <- data %>% mutate(founded_at = as_datetime(founded_at),
-foo <- data %>% mutate(founded_at = as_datetime(founded_at),
-                        first_funding_at = as_datetime(first_funding_at),
-                        last_funding_at = as_datetime(last_funding_at)) %>%
-  mutate(founded_year = round_date(founded_at, unit = "year"),
-         founded_quarter = round_date(founded_at, unit = "quarter"),
-         founded_month = round_date(founded_at, unit = "month"))
-
-# Check dates are in the correct order
-data %>% filter(first_funding_at > last_funding_at)
+# Look at first funding vs founded at, and get rows where funding happened before founding.
+founded_v_funded <- data %>% mutate(tdiff = first_funding_at - founded_at) %>%
+  filter(tdiff < 0) %>%
+  select(name, founded_at, first_funding_at, last_funding_at, tdiff)
 ```
 
+There are no values where the `last_funding_at` date is earlier than the `first_funding_at` date. However
+there are `r round(nrow(founded_v_funded) * 100 / nrow(data), 1)`% of rows where the funding date is earlier
+than the founding date.
 
-@@@@ 
-* Use set operations to determine that category values are a super set of market values.
-* To use for prediction, need to spread each value of category becomes a feature, with True or False. Do a small example of the resulting matrix, but will not actually do it fully as
-the size will be huge. Split the categories and print out the number of unique categories, and perhaps the
-histogram of the categories. Perhaps a reduced set of categories that occur frequently enough can be used.
+```{r inconsisten-dates-table, include = TRUE}
+founded_v_funded %>% arrange(tdiff) %>%
+  head(10) %>%
+  kable(caption = "Funded Earlier Than Founded")
+```
+
+The above table shows a sample of the rows, ordered with the biggest descrepency first. The first 2 rows can
+be manually corrected by using the founding date, while the rest can be changed so that the founding date is
+the first funded value.
+
+```{r fix-funding-dates-2}
+# Manually set the values.
+ind <- which(data$name == "Jumper Networks")
+data[ind, c("first_funding_at", "last_funding_at")] <- data$founded_at[ind]
+ind <- which(data$name == "AndrewBurnett.com Ltd")
+data[ind, c("first_funding_at", "last_funding_at")] <- data$founded_at[ind]
+
+# Set founded equal to first funded at if necessary.
+data <- data %>% mutate(founded_at = if_else(first_funding_at < founded_at, first_funding_at, founded_at))
+```
+
+The exact date is unlikely to be useful for prediction, a less precise value like year will generalize better,
+so all dates are converted to just the year.
+
+```{r use-just-year}
+data <- data %>% mutate_at(c("founded_at", "first_funding_at", "last_funding_at"), year)
+```
+
+### Location
+
+The location related features are `country_code`, `state_code`, `region` and `city`, and all have missing
+values.
+
+```{r location-na-percentages, include = TRUE}
+data %>% summarise(country_code = mean(is.na(country_code)) * 100,
+                   state_code = mean(is.na(state_code)) * 100,
+                   region = mean(is.na(region)) * 100,
+                   city = mean(is.na(city)) * 100) %>%
+  kable(digits = 1, caption = "NA Percentages For Location Features")
+```
+
+The value "ZZZ" will be used to indicate missing country codes, missing regions and city will use "Unknown".
+State code is only applicable to US companies and will be ignored, instead of putting the rest of the world
+into a single state code. All will be turned into factors.
+
+```{r fix-location-features}
+data <- data %>% replace_na(list(country_code = "ZZZ", region = "Unknown", city = "Unknown")) %>%
+  select(-state_code) %>%
+  mutate_at(vars(country_code, region, city), as.factor)
+```
+
+### Funding
+
+The `funding_total_usd` variable has been read in as type character. As an example:
+```{r funding-total-usd-example-row, include = TRUE}
+data[1, c("name", "funding_total_usd", "seed", "venture")]
+```
+
+From this it can be seen that the correct intepretation of `r data[1, "funding_total_usd"]` is the same as the
+value in the `seed` column i.e. `r data[1, "seed"]`. Converting involves stripping the comma, then converting
+to numeric type.
+
+In addition, there are values consisting of a single dash characters indicating a missing value. Rows with
+these values will be dropped.
+
+```{r clean-funding}
+nrow(data)
+data <- data %>% filter(funding_total_usd != "-")
+nrow(data)
+
+data <- data %>% mutate(funding_total_usd = str_remove_all(funding_total_usd, ",")) %>%
+  mutate(funding_total_usd = as.numeric(funding_total_usd))
+```
+
+The rest of the variables are numeric and require no cleaning.
 
 ```{r removed-unused-features}
-#data <- data %>% select(-permalink, -homepage_url)
+data <- data %>% select(-homepage_url)
 ```
 
 ## Data Exploration
+
+```{r common-graph-functions}
+
+# Change colours for graphing so that acquired is marked with green, closed with red, and operating blue.
+status_colours <- c("#619CFF", "#00BA38", "#F8766D")
+
+#' Change the order of the column based on the group counts on that column. Also optionally filter out the
+#' groups that are less than min_count.
+#'
+#' @param data Data frame to work on.
+#' @param column Column to work on.
+#' @param min_count Groups less than this number of rows will be dropped.
+#'
+#' @return Modified version of the data.
+reorder_col_and_filter <- function(data, column, min_count = 0) {
+  data %>% group_by({{column}}) %>%
+    mutate(n = n()) %>%
+    filter(n >= {{min_count}}) %>%
+    ungroup() %>%
+    mutate("{{column}}" := reorder({{column}}, n)) %>%
+    select(-n)
+}
+
+#' Create histogram of status counts, grouped by the specified column
+#'
+#' @param data Data frame to work on.
+#' @param column Column to group on.
+#' @param flip_coords Flip plot X and Y axes.
+#' @param fill_colours Colours for the status categories.
+#'
+#' @return Plot object.
+create_status_histogram <- function(data, column, flip_coords = FALSE, fill_colours = status_colours) {
+  p <- data %>% 
+    ggplot(aes({{column}}, fill = status)) +
+    geom_histogram(stat = "count") +
+    scale_fill_manual(values = fill_colours)
+  if (flip_coords) {
+    p <- p + coord_flip()
+  }
+  p
+}
+
+#' Calculate percentages for status grouped by column.
+#'
+#' @param data Data frame to work on.
+#' @param column Column to group by.
+#'
+#' @return Modified version of the data.
+calc_status_percentages <- function(data, column) {
+  data %>% group_by({{column}}) %>%
+    mutate(total = n()) %>%
+    group_by({{column}}, status) %>%
+    mutate(percentage = n() * 100/ total) %>%
+    select({{column}}, status, percentage) %>%
+    unique()
+}
+
+#' Create plot of data from calc_status_percentages().
+#'
+#' @param data Data frame to work on.
+#' @param column Column to group on.
+#' @param flip_coords Flip plot X and Y axes.
+#' @param fill_colours Colours for the status categories.
+#' @param show_legend Whether to show legend.
+#'
+#' @return Plot object.
+create_status_percentages_plot <- function(data,
+                                           column,
+                                           flip_coords = FALSE,
+                                           fill_colours = status_colours,
+                                           show_legend = TRUE) {
+  p <- data %>%
+      ggplot(aes({{column}}, percentage, fill = status)) +
+      geom_bar(stat = "identity", show.legend = show_legend) +
+      scale_fill_manual(values = status_colours)
+  if (flip_coords) {
+    p <- p + coord_flip()
+  }
+  p
+}
+```
 
 ### Status
 
 The three status values have the following counts:
 
-```{r status-hist-plot, include = TRUE}
-data %>% group_by(status) %>%
-  summarise(count = n()) %>%
-  ungroup() %>%
-  mutate(percentage = count * 100 / sum(count)) %>%
-  kable(digits = 1, caption = "Status Counts")
-  #ggplot(aes(data$status)) + geom_histogram(stat = "count")
+```{r status-percentage-table, include = TRUE}
+
+#' Calculate status counts and percentages.
+#'
+#' @param data Data frame to work on.
+#'
+#' @return Data frame with counts and percentages.
+calc_status_counts <- function(data) {
+  data %>% group_by(status) %>%
+    summarise(count = n()) %>%
+    ungroup() %>%
+    mutate(percentage = count * 100 / sum(count))
+}
+
+data %>% calc_status_counts() %>% kable(digits = 1, caption = "Status Counts")
 ```
 
-Close to 87% of companies in this dataset are operating. This is not representitive of startups in general
-where @@@@ duplicate info?.
-
 ### Market and Categories
+
+```{r market-min-count}
+min_count <- 250
+```
 
 The following histogram plot shows the counts of the status per market (filtered for markets where there are
 at least `r min_count` companies).
 
 ```{r market-status-plot, include = TRUE}
-# Change colours for graphing so that acquired is marked with green, closed with red, and operating blue.
-status_colours <- c("#00BA38", "#F8766D", "#619CFF")
 
-market_data <- data %>% group_by(market) %>%  
-  filter(n() >= min_count) %>%
-  # We want to reorder in descending order
-  mutate(n  = n()) %>%
-  ungroup() %>%
-  mutate(market = reorder(market, n))
-
-market_data %>%
-  ggplot(aes(market, fill = status)) +
-  geom_histogram(stat = "count") +
-  scale_fill_manual(values = status_colours) +
-  coord_flip()
-rm(min_count)
+market_data <- reorder_col_and_filter(data, market, min_count)
+create_status_histogram(market_data, market, TRUE)
 ```
 
 The above plot shows the proportion of statuses are not uniform and vary by market type. This is better
 visualized by plotting percentages of each status per market:
 
 ```{r market-status-proportion-plot, include = TRUE}
-market_status_percentages <- market_data %>% group_by(market) %>%
-  mutate(n_market = n()) %>%
-  group_by(market, status) %>%
-  mutate(percentage = n() * 100/ n_market) %>%
-  select(market, status, percentage) %>%
-  unique()
-  
-market_status_percentages %>%
-  ggplot(aes(market, percentage, fill = status)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = status_colours) +
-  coord_flip()
+market_status_percentages <- calc_status_percentages(market_data, market)
+create_status_percentages_plot(market_status_percentages, market, TRUE)
 
 rm(market_data)
 ```
 
-Creating plots similar to those for `market`:
+Creating plots for categories similar to those for `market`:
 
 ```{r category-status-plot, include = TRUE}
 min_count <- 750
-cat_data <- category_data %>% group_by(category) %>%  
-  filter(n() >= min_count) %>%
-  # We want to reorder in descending order
-  mutate(n  = n()) %>%
-  ungroup() %>%
-  mutate(category = reorder(category, n))
-
-cat_data %>%
-  ggplot(aes(category, fill = status)) +
-  geom_histogram(stat = "count") +
-  scale_fill_manual(values = status_colours) +
-  coord_flip()
-rm(min_count)
+category_data <- reorder_col_and_filter(split_category_data, category, min_count)
+create_status_histogram(category_data, category, TRUE)
 ```
 
 ```{r category-status-proportion-plot, include  = TRUE}
-category_status_percentages <- cat_data %>% group_by(category) %>%
-  mutate(n_category = n()) %>%
-  group_by(category, status) %>%
-  mutate(percentage = n() * 100/ n_category) %>%
-  select(category, status, percentage) %>%
-  unique()
-  
-category_status_percentages %>%
-  ggplot(aes(category, percentage, fill = status)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = status_colours) +
-  coord_flip()
+category_status_percentages <- calc_status_percentages(category_data, category)
+create_status_percentages_plot(category_status_percentages, category, TRUE)
 
-rm(category_data, cat_data)
-#mark_per %>%
-  #left_join(cat_per, by = c("market" = "category", "status" = "status")) %>%
-  #arrange(market)
+rm(split_category_data, category_data)
 ```
 
 To use categories for prediction, they need to be spread so that each category is a feature (with type
-logical). 
-
-```{r market-vs-category-values}
-
-
-```
+logical). Instead the choice is made to ignore the more specific `categories_list` feature and use the overall
+single valued `market` feature.
 
 ### Date
 
-@@@@ Turn status, country, state etc into factors. Dates from strings to datetime.
+Plotting the status vs years:
 
-@@@@ What to use for measuring accuracy/loss function?
+```{r status-vs-founded-year-plot, include = TRUE}
+
+#' Create histogram of status counts, grouped by the specified date column.
+#'
+#' @param data Data frame to work on.
+#' @param column Column to group on.
+#' @param min_count Groups less than this number of rows will be excluded.
+#' @param show_legend Whether to show legend.
+#' @param fill_colours Colours for the status categories.
+#'
+#' @return Plot object.
+create_date_status_histogram <- function(data,
+                                         column,
+                                         min_count = 0,
+                                         show_legend = TRUE,
+                                         fill_colours = status_colours) {
+  data %>%
+    group_by({{column}}) %>%
+    filter(n() >= min_count) %>%
+    group_by({{column}}, status) %>%
+    ggplot(aes({{column}}, fill = status)) +
+    geom_bar(stat = "count", show.legend = show_legend) +
+    scale_fill_manual(values = fill_colours)
+}
+
+create_date_status_histogram(data, founded_at)
+```
+
+```{r status-founded-year-proportion-plot, include = TRUE}
+founded_year_status_percentages <- calc_status_percentages(data, founded_at)
+create_status_percentages_plot(founded_year_status_percentages, founded_at)
+
+rm(founded_year_status_percentages)
+min_count <- 250
+```
+
+There is definite variation of the status proportions through the years. Creating similar plots for
+`first_funding_at` and `last_funding_at` shows variation across years as well (filtering out years with less
+than `r min_count` rows):
+
+```{r status-funding-year-plot, include = TRUE}
+
+p1 <- create_date_status_histogram(data, first_funding_at, min_count, FALSE)
+p2 <- create_date_status_histogram(data, last_funding_at, min_count, FALSE)
+
+grid.arrange(p1, p2, ncol=2)
+rm(p1, p2)
+```
+
+```{r status-funding-year-proportion-plot, include = TRUE}
+p1 <- data %>%
+  group_by(first_funding_at) %>%
+  filter(n() >= min_count) %>%
+  ungroup() %>%
+  calc_status_percentages(first_funding_at) %>%
+  create_status_percentages_plot(first_funding_at, show_legend = FALSE)
+
+p2 <- data %>%
+  group_by(last_funding_at) %>%
+  filter(n() >= min_count) %>%
+  ungroup() %>%
+  calc_status_percentages(last_funding_at) %>%
+  create_status_percentages_plot(last_funding_at, show_legend = FALSE)
+
+grid.arrange(p1, p2, ncol=2)
+rm(p1, p2)
+```
+
+### Location
+
+Create plots of status versus `country_code`, `region`, and `city`, small sample sizes are not plotted.
+
+```{r status-country-plot, include = TRUE}
+min_count <- 200
+
+country_data <- reorder_col_and_filter(data, country_code, min_count)
+create_status_histogram(country_data, country_code, TRUE)
+```
+
+Here it can be seen that the number of US startups is significantly greater than those from other countries.
+
+```{r status-country-proportion-plot, include = TRUE}
+country_data %>% calc_status_percentages(country_code) %>% create_status_percentages_plot(country_code, TRUE)
+rm(country_data)
+```
+
+```{r status-region-plot, include = TRUE}
+region_data <- reorder_col_and_filter(data, region, min_count)
+```
+
+```{r status-region-proportion-plot, include = TRUE}
+region_data %>% calc_status_percentages(region) %>% create_status_percentages_plot(region, TRUE)
+rm(region_data)
+```
+
+At a regional level, there is stronger variation in the percentages compared to the country level.
+
+```{r status-city-plot, include = TRUE}
+city_data <- reorder_col_and_filter(data, city, min_count)
+create_status_histogram(city_data, city, TRUE)
+```
+
+```{r status-city-proportion-plot, include = TRUE}
+city_data %>% calc_status_percentages(city) %>% create_status_percentages_plot(city, TRUE)
+rm(city_data)
+```
+
+### Funding
+
+A frequency plot of log10 of the funding shows that the operating status dominates across all funding values,
+but there are still ranges where there is an increased chance of a company having the closed or acquired
+status.
+
+```{r status-funding-plot, include = TRUE}
+data %>% group_by(status) %>%
+  ggplot(aes(status, funding_total_usd)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+data %>% group_by(status) %>%
+  mutate(log_funding = log10(funding_total_usd)) %>%
+  #ggplot(aes(log_funding, fill = status)) +
+  ggplot(aes(log_funding, colour = status)) +
+  scale_colour_manual(values = status_colours) +
+  geom_freqpoly()
+```
+
+Plotting status frequencies/proportions against number of funding rounds shows having more funding rounds
+correlates to a higher proprtion of companies being in the acquired state. The reverse is true for being in
+the closed state, with more rounds equating to less chance of being in the closed state.
+
+```{r status-funding-rounds-plot, include = TRUE}
+rounds_data <- data %>% mutate(rounds = factor(funding_rounds)) %>%
+  group_by(rounds) %>%
+  filter(n() >= min_count) %>%
+  ungroup()
+
+p1 <- rounds_data %>% group_by(status) %>%
+  ggplot(aes(rounds, fill = status)) +
+  geom_histogram(stat = "count", show.legend = FALSE) +
+  scale_fill_manual(values = status_colours) #+
+  #coord_flip()
+
+p2 <- data %>%
+  group_by(funding_rounds) %>%
+  filter(n() >= min_count) %>%
+  calc_status_percentages(funding_rounds) %>%
+  group_by(status) %>%
+  ggplot(aes(funding_rounds, percentage, colour = status)) +
+  geom_line(show.legend = FALSE) +
+  scale_colour_manual(values = status_colours)
+  
+grid.arrange(p1, p2, ncol = 2)
+```
+
+The summary statistics of the remaining features shows that the majority of values are 0, as an example:
+```{r summary-funding-features, include = TRUE}
+data %>% select(venture, seed, angel, round_A, private_equity) %>% summary() %>%
+  kable(caption = "Example Summary Statistics Funding Types")
+```
+
+Only the `venture` field has the possibility of being useful. As confirmed by checking using `nearZeroVar()`, the following variables will be ignored for prediction:
+```{r ignored-funding-features, include = TRUE}
+near_zero_cols <- data %>%
+ select(-permalink, -name, -category_list, -funding_total_usd, -status, -country_code, -region,
+        -city, -funding_rounds, -founded_at, -first_funding_at, -last_funding_at, -market) %>%
+  nearZeroVar(name = TRUE)
+near_zero_cols
+```
+
+Plot of counts versus log10 of venture funding amount has a similar shape to that obtained by plotting total funding, indicating a large majority of funding comes from the venture capital component.
+```{r status-venture-plot, include = TRUE}
+data %>% group_by(status) %>%
+  filter(venture > 0) %>%
+  mutate(log_venture = log10(venture)) %>%
+  ggplot(aes(log_venture, colour = status)) +
+  geom_freqpoly() +
+  scale_colour_manual(values = status_colours)
+```
+
+## Feature Engineering
+
+The `market` and `category_list` broadly cover the same information, `market` is choosen over the information
+contained in `category_list` due to needing to split/spread the individual categories, using a method such as
+one hot encoding (adding an extra `r length(all_categories)` features).
+
+For the date based variables all three are included, as the plots show periods where the minority statuses of
+acquired and closed are more significant then usual.
+
+From location based features, `country_code` and `region` are selected. The proportions are very different for
+companies based in the US, compared to the rest of the world. At the regional level, there are also large
+differences where the SF Bay Area (Sillicon Valley) has the highest proportion of acquired startups.
+
+Most of the funding based features were zero and of no use, the two used are `funding_total_usd` and
+`funding_rounds`.
+
+One of the models choosen is multinomial logistic classification using the `multinom` function from the `nnet`
+package. This has the requirement that all features be numeric and in the range [0,1]. So all categorial
+features are converted to numeric, log10 is taken of `funding_total_usd` due to its large range, and then all
+values are scaled to be in the range [0,1].
+
+```{r feature-engineering}
+model_data <- data %>%
+  mutate(country_code = as.numeric(country_code)[country_code]) %>%
+  mutate(region = as.numeric(region)[region]) %>%
+  mutate(funding = log10(funding_total_usd)) %>%
+  mutate(rounds = pmax(funding_rounds, 5)) %>%
+  mutate(market = as.numeric(market)[market]) %>%
+  select(status, country_code, region, market, funding, rounds, founded_at, first_funding_at, last_funding_at) %>%
+  mutate_at(2:9, scales::rescale) %>% as.data.frame()
+
+formula <- status ~ country_code + region + market + funding + rounds + founded_at + first_funding_at + last_funding_at
+
+```
+
+The data is then split into 3 sets, a training set for building the models (70%), a validation set that is used to
+help the building and evaluation of models (15%), and a test set that is only used to test final accuracy
+(15%). Note, this definition of test and validation sets differs from the naming used in the MovieLens
+project, but is the common usage.
+
+```{r data-split, include}
+set.seed(1, sample.kind="Rounding")
+index <- createDataPartition(y = model_data$status, times = 1, p = 0.3, list = FALSE)
+
+training_set <- model_data[-index,]
+remaining_set <- model_data[index,]
+
+set.seed(1, sample.kind="Rounding")
+index <- createDataPartition(y = remaining_set$status, times = 1, p = 0.5, list = FALSE)
+
+validation_set <- remaining_set[-index,]
+test_set <- remaining_set[index,]
+```
+
+## Data Imbalance
+
+The data is heavily imbalanced with a large prevalence of companies in the operating state. This will make it
+very difficult to be able to correctly detect the other statuses. To help balance the data, 3 methods will be
+trialled.
+
+* Undersampling, randomly discarding data that are part of the operating category.
+
+* Oversampling, randomly copying rows from the minority categories to increase their numbers.
+
+* SMOTE, Synthetic Minority Oversampling TEchnique where minority categories have synthetic data created based
+  on exsiting minority data.
+
+These methods are implemented in the `UBL` package.
+
+```{r generate-balanced-sets}
+if(!require(UBL)) install.packages("UBL", repos = "http://cran.us.r-project.org")
+
+smoted_training_set <- UBL::SmoteClassif(formula, training_set)
+under_training_set <- UBL::RandUnderClassif(formula, training_set)
+over_training_set <- UBL::RandOverClassif(formula, training_set)
+```
 
 ## Models
 
-Given the prevalance of companies with the status of opearting is 87%, just guessing the status as operating
-would give us this accuracy, but with no ability to predict for the other statuses.
+Two models are choosen, multinomial logistic classification, and decision trees.
+
+### Multinomial Logistic Classification
+
+Status is considered nominal, not ordinal. Although being closed could be considered the lowest value, it is
+not obvious whether operating or being acquired is the middle value or the best outcome.
+
+The function `multinom` will be used to fit multinomial log-linear models using neural networks.
+
+```{r multinom-model}
+if(!require(nnet)) install.packages("nnet", repos = "http://cran.us.r-project.org")
+
+cache_multinom_filename <- "rda/multinom.RData"
+if (use_cache & file.exists(cache_multinom_filename)) {
+  load(cache_multinom_filename, envir=.GlobalEnv, verbose=TRUE)
+} else {
+  Sys.time()
+  multinom_model <- train(formula, method = "multinom", data = training_set) 
+  smoted_multinom_model <- train(formula, method = "multinom", data = smoted_training_set) 
+  under_multinom_model <- train(formula, method = "multinom", data = under_training_set) 
+  over_multinom_model <- train(formula, method = "multinom", data = over_training_set) 
+  Sys.time()
+
+  if (use_cache) {
+    save(multinom_model, smoted_multinom_model, under_multinom_model, over_multinom_model,
+         file = cache_multinom_filename)
+  }
+}
+
+multinom_preds <- predict(multinom_model, validation_set)
+smoted_multinom_preds <- predict(smoted_multinom_model, validation_set)
+under_multinom_preds <- predict(under_multinom_model, validation_set)
+over_multinom_preds <- predict(over_multinom_model, validation_set)
+
+multinom_cm <- confusionMatrix(multinom_preds, validation_set$status)
+smoted_multinom_cm <- confusionMatrix(smoted_multinom_preds, validation_set$status)
+under_multinom_cm <- confusionMatrix(under_multinom_preds, validation_set$status)
+over_multinom_cm <- confusionMatrix(over_multinom_preds, validation_set$status)
+```
+
+Models were created and trained on 4 training sets: original unbalanced data, SMOTE, under sampled, and
+over sampled. Then predictions were carried out against the validation set.
+
+The confusion matrix for the unbalanced data trained model:
+
+```{r multinom-orig-cm}
+multinom_cm
+```
+
+It has an accuracy close to the no information rate, and is good at predicting the operating status, very poor
+for the acquired status, and can't detect the closed status at all. The balanced accuracy, taking into account
+sensitivity and specificity is only slightly better than 0.5 for the first 2 cases, and just around 0.5 for
+the closed case.
+
+The SMOTE data set model has the following confusion matrix:
+
+```{r multinom-smote-cm}
+smoted_multinom_cm
+```
+
+The overall accuracy is much worse here at about `r round(smoted_multinom_cm$overall["Accuracy"], 2)`, but
+does a much better job at predicting the other two statuses. The other models trained on over and under
+sampled data performed similar to the SMOTE data trained model.
+
+### Classification Tree
+
+From the data exploration, it could be seen that there were definite differences in the proportion of status
+according to market, region etc. It seems like a decision based tree approach would do well at modelling this.
+
+```{r classification-tree-model}
+Sys.time()
+tree_model <- train(formula,
+                    method = "rpart",
+                    tuneGrid = data.frame(cp = seq(0.0, 0.1, len = 10)),
+                    data = training_set)
+smoted_tree_model <- train(formula,
+                           method = "rpart",
+                           tuneGrid = data.frame(cp = seq(0.0, 0.1, len = 10)),
+                           data = smoted_training_set)
+Sys.time()
+
+tree_preds <- predict(tree_model, validation_set)
+smoted_tree_preds <- predict(smoted_tree_model, validation_set)
+tree_cm <- confusionMatrix(tree_preds, validation_set$status)
+smoted_tree_cm <- confusionMatrix(smoted_tree_preds, validation_set$status)
+```
+
+Models were built against the original unbalanced data, and the SMOTE data. The unbalanced data model:
+
+```{r tree-cm}
+tree_cm
+```
+
+As can be seen from the confusion matrix, the model is always predicting the status of operating. For the
+SMOTE data trained model:
+
+```{r smote-tree-cm}
+smoted_tree_cm
+```
+
+Overall accuracy is slightly better than the multinomial logistic classifier, but it doesn't do as well on
+predicting the minority classes.
 
 @@@@ section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than simple linear regression for prediction problems.
 
 # Results 
 
+The final model chosen is the multinomial logistic classifier trained on balanced (SMOTE) data, it has
+slightly better accuracy on the minority classes at the cost of lower overall accuracy and prediction of the
+status of operating. Predicting against the hold out test set gives the following results:
+
+```{r final-model, include = TRUE}
+final_preds <- predict(smoted_multinom_model, test_set)
+final_cm <- confusionMatrix(final_preds, test_set$status)
+final_cm
+```
+
+For comparison, the multinomial model trained on the original unbalanced data has the following results
+against the test set.
+
+```{r multinomial-unbalanced-model, include = TRUE}
+final_unbalanced_preds <- predict(multinom_model, test_set)
+final_unbalanced_cm <- confusionMatrix(final_unbalanced_preds, test_set$status)
+final_unbalanced_cm
+```
+
+Essentially there is a trade off in overall accuracy, and accuracy on predicting the majority status, versus
+accuracy on the minority statuses. The balanced accuracy is much better on the SMOTE trained model. In this
+project, the use of a rebalancing method was essential to allow the model to be able to predict the minority
+statuses that had small prevalences of around 8% and 5%.
+
 @@@@ A results section that presents the modeling results and discusses the model performance.
 
 # Conclusion
 
-@@@@ A conclusion section that gives a brief summary of the report, its potential impact, its limitations, and future work.
+In this project, a multinomial logistic classification model was created to predict the status of a startup,
+based on 8 features such as its market, country, region, funding in USD, founding year etc.  The data was
+heavily unbalanced, with the prevalence of the majority status approximately 86%. Through the use of the SMOTE
+balancing technique applied to the training data, the model was able to reach a balanced accuracy score of
+around 0.7 for each of the statuses, but at a cost of lower overall accuracy of approximately 0.68.
 
+The original data was fairly dirty, missing a lot of values and having bad/inconsistent and duplicated rows.
+There were originally 39 features, however the majority of the funding features were essentially empty giving
+no predictive power.
+
+Future work could involve evaluating other tree models such as random forests, or gradient boosted decision
+trees (XGBoost), or applying methods to allow tuning of accuracy for one status class in preference to the
+others.
 
 # Bibliography
 
